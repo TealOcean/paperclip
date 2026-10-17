@@ -96,6 +96,8 @@ export type IssueListFilters = {
   touchedByUserId?: string;
   inboxArchivedByUserId?: string;
   unreadForUserId?: string;
+  /** Only issues hidden with "Hide this task" (board users). */
+  hiddenOnly?: boolean;
   labelId?: string;
   workspaceId?: string;
   executionWorkspaceId?: string;
@@ -137,6 +139,7 @@ function issueListSearchParams(filters?: IssueListFilters) {
     params.set("inboxArchivedByUserId", filters.inboxArchivedByUserId);
   if (filters?.unreadForUserId)
     params.set("unreadForUserId", filters.unreadForUserId);
+  if (filters?.hiddenOnly) params.set("hiddenOnly", "true");
   if (filters?.labelId) params.set("labelId", filters.labelId);
   if (filters?.workspaceId) params.set("workspaceId", filters.workspaceId);
   if (filters?.executionWorkspaceId)

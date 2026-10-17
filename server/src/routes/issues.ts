@@ -8351,6 +8351,12 @@ export function issueRoutes(
       });
       return;
     }
+    // Hidden issues ("Hide this task") are listed only for board users, so they can unhide them.
+    const hiddenOnly = req.query.hiddenOnly === "true";
+    if (hiddenOnly && req.actor.type !== "board") {
+      res.status(403).json({ error: "hiddenOnly=true requires board authentication" });
+      return;
+    }
     if (
       unreadForUserFilterRaw === "me" &&
       (!unreadForUserId || req.actor.type !== "board")
@@ -8457,6 +8463,7 @@ export function issueRoutes(
       touchedByUserId,
       inboxArchivedByUserId,
       unreadForUserId,
+      hiddenOnly: hiddenOnly || undefined,
       projectId: req.query.projectId as string | undefined,
       workspaceId: req.query.workspaceId as string | undefined,
       executionWorkspaceId: req.query.executionWorkspaceId as

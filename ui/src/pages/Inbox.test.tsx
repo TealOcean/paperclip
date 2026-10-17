@@ -35,6 +35,7 @@ const apiMocks = vi.hoisted(() => ({
   retryTask: vi.fn(),
   archiveFromInbox: vi.fn(),
   unarchiveFromInbox: vi.fn(),
+  issueUpdate: vi.fn(),
   agentsList: vi.fn(),
   heartbeatRunsList: vi.fn(),
   liveRunsForCompany: vi.fn(),
@@ -80,6 +81,7 @@ vi.mock("../api/issues", () => ({
     markUnread: vi.fn(),
     archiveFromInbox: apiMocks.archiveFromInbox,
     unarchiveFromInbox: apiMocks.unarchiveFromInbox,
+    update: apiMocks.issueUpdate,
   },
 }));
 
@@ -1293,6 +1295,111 @@ describe("Inbox toolbar", () => {
       });
       await vi.waitFor(() => {
         expect(apiMocks.unarchiveFromInbox).toHaveBeenCalledWith("issue-archived");
+      });
+
+      act(() => root.unmount());
+    });
+
+    it("keeps archived issues out of the Recent tab by default", async () => {
+      routerMock.location.pathname = "/inbox/recent";
+      mockMineAndTouchedLists();
+
+      const root = await renderInbox();
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Visible inbox row");
+      });
+      expect(container.textContent).not.toContain("Archived inbox row");
+
+      act(() => root.unmount());
+    });
+
+    it("shows archived issues on the Recent tab with Unarchive when Hide archived is off", async () => {
+      routerMock.location.pathname = "/inbox/recent";
+      localStorage.setItem("paperclip:inbox:filters:company-1", JSON.stringify({
+        allCategoryFilter: "everything",
+        allApprovalFilter: "all",
+        issueFilters: {},
+        hideArchived: false,
+      }));
+      mockMineAndTouchedLists();
+
+      const root = await renderInbox();
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Archived inbox row");
+      });
+      expect(container.querySelector('button[aria-label="Unarchive"]')).not.toBeNull();
+
+      act(() => root.unmount());
+    });
+  });
+
+  describe("Hide hidden tasks filter", () => {
+    const visibleIssue = () => createIssue({ id: "issue-visible", identifier: "PAP-3001", title: "Visible inbox row" });
+    const hiddenIssue = () => createIssue({ id: "issue-hidden", identifier: "PAP-3002", title: "Hidden task row" });
+
+    function mockListsWithHiddenTask() {
+      apiMocks.issuesList.mockImplementation(
+        (_companyId: string, filters?: { hiddenOnly?: boolean }) =>
+          Promise.resolve(filters?.hiddenOnly ? [hiddenIssue()] : [visibleIssue()]),
+      );
+    }
+
+    async function renderInbox() {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false, staleTime: 0, gcTime: 0 } },
+      });
+      const root = createRoot(container);
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <Inbox />
+          </QueryClientProvider>,
+        );
+      });
+      return root;
+    }
+
+    it("does not fetch or show hidden tasks by default", async () => {
+      routerMock.location.pathname = "/inbox/mine";
+      mockListsWithHiddenTask();
+
+      const root = await renderInbox();
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Visible inbox row");
+      });
+      expect(container.textContent).not.toContain("Hidden task row");
+      expect(apiMocks.issuesList).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ hiddenOnly: true }),
+      );
+
+      act(() => root.unmount());
+    });
+
+    it("lists hidden tasks under Hidden with an Unhide action when the filter is off", async () => {
+      routerMock.location.pathname = "/inbox/mine";
+      localStorage.setItem("paperclip:inbox:filters:company-1", JSON.stringify({
+        allCategoryFilter: "everything",
+        allApprovalFilter: "all",
+        issueFilters: {},
+        hideHidden: false,
+      }));
+      mockListsWithHiddenTask();
+      apiMocks.issueUpdate.mockResolvedValue(hiddenIssue());
+
+      const root = await renderInbox();
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Hidden task row");
+      });
+      expect(container.textContent).toContain("Hidden");
+
+      const unhideButton = container.querySelector<HTMLButtonElement>('button[aria-label="Unhide"]');
+      expect(unhideButton).not.toBeNull();
+      await act(async () => {
+        unhideButton!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      });
+      await vi.waitFor(() => {
+        expect(apiMocks.issueUpdate).toHaveBeenCalledWith("issue-hidden", { hiddenAt: null });
       });
 
       act(() => root.unmount());

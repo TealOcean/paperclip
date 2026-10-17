@@ -251,4 +251,34 @@ describe("IssueFiltersPopover", () => {
 
     act(() => root.unmount());
   });
+
+  it("restores Hide archived and Hide hidden tasks when Clear is pressed", () => {
+    const root = createRoot(container);
+    const onHideArchivedChange = vi.fn();
+    const onHideHiddenChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <IssueFiltersPopover
+          state={defaultIssueFilterState}
+          onChange={vi.fn()}
+          activeFilterCount={2}
+          enableExternalObjectFilters={false}
+          hideArchivedFilter={{ checked: false, onChange: onHideArchivedChange }}
+          hideHiddenFilter={{ checked: false, onChange: onHideHiddenChange }}
+        />,
+      );
+    });
+    const hideHiddenLabel = Array.from(container.querySelectorAll("label"))
+      .find((label) => label.textContent?.trim() === "Hide hidden tasks");
+    expect(hideHiddenLabel).toBeDefined();
+
+    const clearButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Clear");
+    act(() => clearButton?.click());
+    expect(onHideArchivedChange).toHaveBeenCalledWith(true);
+    expect(onHideHiddenChange).toHaveBeenCalledWith(true);
+
+    act(() => root.unmount());
+  });
 });

@@ -197,8 +197,10 @@ const INBOX_COLLECTION_KEY = "inbox";
 
 type StreamlinedInboxViewState = InboxFilterPreferences & {
   showDateGroupSeparators: boolean;
-  /** Mine tab: keep issues archived from my inbox out of the list (on by default). */
+  /** Keep issues archived from my inbox out of every tab (on by default). */
   hideArchived: boolean;
+  /** Keep tasks hidden with "Hide this task" out of the inbox (on by default). */
+  hideHidden: boolean;
 };
 
 const DEFAULT_INBOX_FILTER_PREFERENCES: StreamlinedInboxViewState = {
@@ -207,6 +209,7 @@ const DEFAULT_INBOX_FILTER_PREFERENCES: StreamlinedInboxViewState = {
   issueFilters: { ...defaultIssueFilterState },
   showDateGroupSeparators: true,
   hideArchived: true,
+  hideHidden: true,
 };
 
 function normalizeInboxCollectionViewState(value: unknown): StreamlinedInboxViewState {
@@ -234,6 +237,7 @@ function normalizeInboxCollectionViewState(value: unknown): StreamlinedInboxView
     },
     showDateGroupSeparators: candidate.showDateGroupSeparators !== false,
     hideArchived: candidate.hideArchived !== false,
+    hideHidden: candidate.hideHidden !== false,
   };
 }
 
@@ -870,7 +874,7 @@ function StreamlinedInbox({
   const { dismissed: dismissedAlerts, dismiss: dismissAlert } = useDismissedInboxAlerts();
   const { dismissedAtByKey, dismiss: dismissInboxItem } = useInboxDismissals(selectedCompanyId);
   const { readItems, markRead: markItemRead, markUnread: markItemUnread } = useReadInboxItems();
-  const { allCategoryFilter, allApprovalFilter, issueFilters, hideArchived } = filterPreferences;
+  const { allCategoryFilter, allApprovalFilter, issueFilters, hideArchived, hideHidden } = filterPreferences;
 
   const pathSegment = location.pathname.split("/").pop() ?? "mine";
   const pathTab: InboxTab =
@@ -1122,6 +1126,25 @@ function StreamlinedInbox({
     () => getRecentTouchedIssues(touchedIssuesRaw).filter((issue) => !locallyArchivedIssueIds.has(issue.id)),
     [locallyArchivedIssueIds, touchedIssuesRaw],
   );
+  // Issues archived from my inbox: the server keeps them in the touched list but
+  // leaves them out of Mine. Empty until both lists have loaded, so nothing
+  // flickers out while Mine is still loading.
+  const inboxArchivedIssueIds = useMemo(() => {
+    if (isMineIssuesLoading || isTouchedIssuesLoading) return new Set<string>();
+    const mineIds = new Set(mineIssues.map((issue) => issue.id));
+    return new Set(touchedIssues.filter((issue) => !mineIds.has(issue.id)).map((issue) => issue.id));
+  }, [isMineIssuesLoading, isTouchedIssuesLoading, mineIssues, touchedIssues]);
+  // Tasks hidden with "Hide this task" are left out of every list server-side; fetch
+  // them (company-wide, anyone can hide a task) only while "Hide hidden tasks" is off.
+  const { data: hiddenIssuesRaw = [] } = useQuery({
+    queryKey: [...queryKeys.issues.listHidden(selectedCompanyId!), "compact", INBOX_ISSUE_LIST_LIMIT] as const,
+    queryFn: () =>
+      issuesApi.listCompact(selectedCompanyId!, {
+        hiddenOnly: true,
+        limit: INBOX_ISSUE_LIST_LIMIT,
+      }).then((rows) => rows as Issue[]),
+    enabled: !!selectedCompanyId && !hideHidden,
+  });
   const shouldUseIssueSearchSupplement =
     !!selectedCompanyId
     && normalizedSearchQuery.length > 0;
@@ -1246,11 +1269,15 @@ function StreamlinedInbox({
   }, [agents, currentUserId, mineIssues, touchedIssues]);
   const issuesToRender = useMemo(
     () => {
+      // Mine already excludes archived issues server-side; its "Archived"
+      // section is built separately when Hide archived is off.
       if (tab === "mine") return visibleMineIssues;
-      if (tab === "unread") return unreadTouchedIssues;
-      return visibleTouchedIssues;
+      const touched = tab === "unread" ? unreadTouchedIssues : visibleTouchedIssues;
+      return hideArchived && inboxArchivedIssueIds.size > 0
+        ? touched.filter((issue) => !inboxArchivedIssueIds.has(issue.id))
+        : touched;
     },
-    [tab, visibleMineIssues, visibleTouchedIssues, unreadTouchedIssues],
+    [tab, visibleMineIssues, visibleTouchedIssues, unreadTouchedIssues, hideArchived, inboxArchivedIssueIds],
   );
 
   const agentById = useMemo(() => {
@@ -1478,6 +1505,31 @@ function StreamlinedInbox({
       visibleTouchedIssues,
     ],
   );
+  // "Hidden" section: tasks hidden with "Hide this task", listed while "Hide hidden tasks" is off.
+  const hiddenSectionIssues = useMemo(
+    () =>
+      hideHidden
+        ? []
+        : getArchivedInboxSearchIssues({
+          visibleIssues: [],
+          searchableIssues: hiddenIssuesRaw,
+          query: normalizedSearchQuery,
+          isolatedWorkspacesEnabled,
+          executionWorkspaceById,
+          projectWorkspaceById,
+          defaultProjectWorkspaceIdByProjectId,
+          includeWithoutQuery: true,
+        }),
+    [
+      defaultProjectWorkspaceIdByProjectId,
+      executionWorkspaceById,
+      hiddenIssuesRaw,
+      hideHidden,
+      isolatedWorkspacesEnabled,
+      normalizedSearchQuery,
+      projectWorkspaceById,
+    ],
+  );
   const issueSearchSupplementResults = useMemo(
     () =>
       getInboxSearchSupplementIssues({
@@ -1505,9 +1557,10 @@ function StreamlinedInbox({
   const nonInboxSearchIssueIds = useMemo(
     () => new Set([
       ...archivedSearchIssues.map((issue) => issue.id),
+      ...hiddenSectionIssues.map((issue) => issue.id),
       ...issueSearchSupplementResults.map((issue) => issue.id),
     ]),
-    [archivedSearchIssues, issueSearchSupplementResults],
+    [archivedSearchIssues, hiddenSectionIssues, issueSearchSupplementResults],
   );
 
   // --- Parent-child nesting for inbox issues ---
@@ -1557,6 +1610,12 @@ function StreamlinedInbox({
       { keyPrefix: "archived-search:", searchSection: "archived", nestingEnabled },
     ),
     ...buildGroupedInboxSections(
+      getInboxWorkItems({ issues: hiddenSectionIssues, approvals: [] }),
+      groupBy,
+      inboxWorkspaceGrouping,
+      { keyPrefix: "hidden:", searchSection: "hidden", nestingEnabled },
+    ),
+    ...buildGroupedInboxSections(
       getInboxWorkItems({ issues: issueSearchSupplementResults, approvals: [] }),
       groupBy,
       inboxWorkspaceGrouping,
@@ -1564,6 +1623,7 @@ function StreamlinedInbox({
     ),
   ], [
     archivedSearchIssues,
+    hiddenSectionIssues,
     filteredWorkItems,
     groupBy,
     inboxWorkspaceGrouping,
@@ -2015,6 +2075,30 @@ function StreamlinedInbox({
     },
   });
 
+  // Unhides a task hidden with "Hide this task" from the inbox's "Hidden" section.
+  const [unhidingIssueIds, setUnhidingIssueIds] = useState<Set<string>>(new Set());
+  const unhideIssueMutation = useMutation({
+    mutationFn: (id: string) => issuesApi.update(id, { hiddenAt: null }),
+    onMutate: (id) => {
+      setActionError(null);
+      setUnhidingIssueIds((prev) => new Set(prev).add(id));
+    },
+    onError: (err) => {
+      setActionError(err instanceof Error ? err.message : "Failed to unhide task");
+    },
+    onSettled: (_data, _error, id) => {
+      setUnhidingIssueIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      if (selectedCompanyId) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.issues.listHidden(selectedCompanyId) });
+      }
+      invalidateInboxIssueQueryCaches();
+    },
+  });
+
   const markReadMutation = useMutation({
     mutationFn: (id: string) => issuesApi.markRead(id),
     onMutate: (id) => {
@@ -2440,7 +2524,10 @@ function StreamlinedInbox({
     !isRunsLoading;
 
   const showSeparatorBefore = (key: SectionKey) => visibleSections.indexOf(key) > 0;
-  const markAllReadIssues = (tab === "mine" ? visibleMineIssues : unreadTouchedIssues)
+  const unreadTouchedIssuesShown = hideArchived && inboxArchivedIssueIds.size > 0
+    ? unreadTouchedIssues.filter((issue) => !inboxArchivedIssueIds.has(issue.id))
+    : unreadTouchedIssues;
+  const markAllReadIssues = (tab === "mine" ? visibleMineIssues : unreadTouchedIssuesShown)
     .filter((issue) => issue.isUnreadForMe && !fadingOutIssues.has(issue.id) && !archivingIssueIds.has(issue.id));
   const unreadIssueIds = markAllReadIssues
     .map((issue) => issue.id);
@@ -2450,10 +2537,23 @@ function StreamlinedInbox({
     ? Number(allCategoryFilter !== "everything")
       + Number(showApprovalsCategory && allApprovalFilter !== "all")
     : 0;
-  const showHideArchivedFilter = tab === "mine";
+  const hideArchivedFilterControl = {
+    checked: hideArchived,
+    onChange: (checked: boolean) => {
+      updateFilterPreferences((previous) => ({ ...previous, hideArchived: checked }));
+    },
+  };
+  const hideHiddenFilterControl = {
+    checked: hideHidden,
+    onChange: (checked: boolean) => {
+      updateFilterPreferences((previous) => ({ ...previous, hideHidden: checked }));
+    },
+  };
+  // Both visibility toggles default to checked, so unchecking either counts as a filter.
+  const activeVisibilityFilterCount = Number(!hideArchived) + Number(!hideHidden);
   const activeFilterCount = activeIssueFilterCount
     + activeInboxScopeFilterCount
-    + Number(showHideArchivedFilter && !hideArchived);
+    + activeVisibilityFilterCount;
   const showGeneralIssueToolbarControls = tab !== "blocked";
   const activeStatusFilterApplied =
     issueFilters.statuses.length === 4
@@ -2520,7 +2620,8 @@ function StreamlinedInbox({
               <IssueFiltersPopover
                 state={issueFilters}
                 onChange={updateIssueFilters}
-                activeFilterCount={activeIssueFilterCount}
+                activeFilterCount={activeIssueFilterCount + Number(!hideArchived)}
+                hideArchivedFilter={hideArchivedFilterControl}
                 agents={agents}
                 creators={creatorOptions}
                 projects={projects?.map((project) => ({ id: project.id, name: project.name }))}
@@ -2650,12 +2751,8 @@ function StreamlinedInbox({
                     }));
                   },
                 } : undefined}
-                hideArchivedFilter={showHideArchivedFilter ? {
-                  checked: hideArchived,
-                  onChange: (checked) => {
-                    updateFilterPreferences((previous) => ({ ...previous, hideArchived: checked }));
-                  },
-                } : undefined}
+                hideArchivedFilter={hideArchivedFilterControl}
+                hideHiddenFilter={hideHiddenFilterControl}
               />
               <Popover>
                 <PopoverTrigger asChild>
@@ -2772,6 +2869,7 @@ function StreamlinedInbox({
           groupBy={blockedGroupBy}
           sortBy={blockedSortBy}
           issueFilters={issueFilters}
+          excludedIssueIds={hideArchived ? inboxArchivedIssueIds : undefined}
           currentUserId={currentUserId}
           liveIssueIds={liveIssueIds}
           subtreeLiveCounts={subtreeLiveCounts}
@@ -2826,6 +2924,7 @@ function StreamlinedInbox({
                   collapseParentId = null,
                   allowArchive = canArchiveFromTab,
                   allowUnarchive = false,
+                  allowUnhide = false,
                 }: {
                   issue: Issue;
                   depth: number;
@@ -2837,6 +2936,8 @@ function StreamlinedInbox({
                   allowArchive?: boolean;
                   /** Rows in the "Archived" section get an Unarchive button instead of Archive. */
                   allowUnarchive?: boolean;
+                  /** Rows in the "Hidden" section get an Unhide button. */
+                  allowUnhide?: boolean;
                 }) => {
                   const isUnread = issue.isUnreadForMe && !fadingOutIssues.has(issue.id);
                   const isFading = fadingOutIssues.has(issue.id);
@@ -2967,13 +3068,19 @@ function StreamlinedInbox({
                       ) : undefined}
                       unreadState={isUnread ? "visible" : isFading ? "fading" : "hidden"}
                       onMarkRead={() => markReadMutation.mutate(issue.id)}
-                      onArchive={allowArchive
-                        ? () => archiveIssueMutation.mutate(issue.id)
-                        : allowUnarchive
-                          ? () => unarchiveIssueMutation.mutate(issue.id)
-                          : undefined}
-                      archiveAction={!allowArchive && allowUnarchive ? "unarchive" : "archive"}
-                      archiveDisabled={isArchiving || unarchivingIssueIds.has(issue.id)}
+                      onArchive={allowUnhide
+                        ? () => unhideIssueMutation.mutate(issue.id)
+                        : allowArchive
+                          ? () => archiveIssueMutation.mutate(issue.id)
+                          : allowUnarchive
+                            ? () => unarchiveIssueMutation.mutate(issue.id)
+                            : undefined}
+                      archiveAction={allowUnhide
+                        ? "unhide"
+                        : !allowArchive && allowUnarchive ? "unarchive" : "archive"}
+                      archiveDisabled={isArchiving
+                        || unarchivingIssueIds.has(issue.id)
+                        || unhidingIssueIds.has(issue.id)}
                       desktopTrailing={
                         (streamlinedUiEnabled ? visibleTaskDataColumns : visibleTrailingIssueColumns).length > 0 ? (
                           <InboxIssueTrailingColumns
@@ -3027,7 +3134,11 @@ function StreamlinedInbox({
                       >
                         <div className="h-px flex-1 bg-border/80" />
                         <span className="shrink-0 text-(length:--text-micro) font-semibold uppercase tracking-wide text-muted-foreground">
-                          {group.searchSection === "archived" ? "Archived" : "Other results"}
+                          {group.searchSection === "archived"
+                            ? "Archived"
+                            : group.searchSection === "hidden"
+                              ? "Hidden"
+                              : "Other results"}
                         </span>
                         <div className="h-px flex-1 bg-border/80" />
                       </div>,
@@ -3255,8 +3366,12 @@ function StreamlinedInbox({
                     const childIssues = group.childrenByIssueId.get(issue.id) ?? [];
                     const hasChildren = childIssues.length > 0;
                     const isExpanded = hasChildren && !collapsedInboxParents.has(issue.id);
-                    const canArchiveIssue = canArchiveFromTab && group.searchSection === "none";
-                    const canUnarchiveIssue = group.searchSection === "archived";
+                    // Archived issues shown inline on Recent/Unread/All (Hide archived off) get Unarchive too.
+                    const isInboxArchived = group.searchSection === "archived"
+                      || (group.searchSection === "none" && inboxArchivedIssueIds.has(issue.id));
+                    const canArchiveIssue = canArchiveFromTab && group.searchSection === "none" && !isInboxArchived;
+                    const canUnarchiveIssue = isInboxArchived;
+                    const canUnhideIssue = group.searchSection === "hidden";
                     const renderChildIssueRows = (
                       children: Issue[],
                       depth: number,
@@ -3279,8 +3394,9 @@ function StreamlinedInbox({
                           isExpanded: childIsExpanded,
                           childCount: grandchildIssues.length,
                           collapseParentId: child.id,
-                          allowArchive: canArchiveIssue,
-                          allowUnarchive: canUnarchiveIssue,
+                          allowArchive: canArchiveIssue && !inboxArchivedIssueIds.has(child.id),
+                          allowUnarchive: canUnarchiveIssue || inboxArchivedIssueIds.has(child.id),
+                          allowUnhide: canUnhideIssue,
                         });
                         const isChildArchiving = archivingIssueIds.has(child.id);
                         const row = (
@@ -3322,6 +3438,7 @@ function StreamlinedInbox({
                       collapseParentId: issue.id,
                       allowArchive: canArchiveIssue,
                       allowUnarchive: canUnarchiveIssue,
+                      allowUnhide: canUnhideIssue,
                     });
 
                     elements.push(wrapItem(`issue:${issue.id}`, isSelected, canArchiveIssue ? (

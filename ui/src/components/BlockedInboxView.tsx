@@ -36,6 +36,8 @@ interface BlockedInboxViewProps {
   groupBy: BlockedInboxGroupBy;
   sortBy: BlockedInboxSort;
   issueFilters: IssueFilterState;
+  /** Issues to leave out, e.g. those archived from my inbox while "Hide archived" is on. */
+  excludedIssueIds?: ReadonlySet<string>;
   currentUserId: string | null;
   liveIssueIds: ReadonlySet<string>;
   subtreeLiveCounts: ReadonlyMap<string, number>;
@@ -58,6 +60,7 @@ export function BlockedInboxView({
   groupBy,
   sortBy,
   issueFilters,
+  excludedIssueIds,
   currentUserId,
   liveIssueIds,
   subtreeLiveCounts,
@@ -92,8 +95,10 @@ export function BlockedInboxView({
 
   const allRows = useMemo(() => buildBlockedInboxRows(issues), [issues]);
   const filteredRows = useMemo(
-    () => allRows.filter((row) => blockedRowMatchesSearch(row, searchQuery)),
-    [allRows, searchQuery],
+    () => allRows.filter((row) =>
+      blockedRowMatchesSearch(row, searchQuery)
+      && !(excludedIssueIds?.has(row.issue.id) ?? false)),
+    [allRows, excludedIssueIds, searchQuery],
   );
   const issueFilteredRows = useMemo(() => {
     const visibleIssueIds = new Set(

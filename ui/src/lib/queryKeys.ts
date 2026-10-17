@@ -325,6 +325,8 @@ export const queryKeys = {
       ["issues", companyId, "mine-by-me"] as const,
     listTouchedByMe: (companyId: string) =>
       ["issues", companyId, "touched-by-me"] as const,
+    listHidden: (companyId: string) =>
+      ["issues", companyId, "hidden"] as const,
     listUnreadTouchedByMe: (companyId: string) =>
       ["issues", companyId, "unread-touched-by-me"] as const,
     listBlockedAttention: (companyId: string) =>

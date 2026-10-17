@@ -93,7 +93,7 @@ export interface InboxWorkItemGroup {
   items: InboxWorkItem[];
 }
 
-export type InboxSearchSection = "none" | "archived" | "other";
+export type InboxSearchSection = "none" | "archived" | "hidden" | "other";
 
 export interface InboxGroupedSection {
   key: string;

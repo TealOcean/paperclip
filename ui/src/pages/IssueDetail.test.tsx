@@ -5600,6 +5600,53 @@ describe("IssueDetail", () => {
     expect(mockIssuesApi.unarchiveFromInbox).toHaveBeenCalledWith("issue-1");
   });
 
+  it("offers Unhide this task instead of Hide for a hidden task", async () => {
+    const hiddenIssue = createIssue({ hiddenAt: new Date("2026-04-21T00:00:00.000Z") });
+    mockIssuesApi.get.mockResolvedValue(hiddenIssue);
+    mockIssuesApi.update.mockResolvedValue(createIssue({ hiddenAt: null }));
+    mockAuthApi.getSession.mockResolvedValue({
+      session: { userId: "user-1" },
+      user: { id: "user-1" },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <IssueDetail />
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+    await flushReact();
+
+    const moreButton = container.querySelector(
+      'button[aria-label="More task actions"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => {
+      moreButton!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    await flushReact();
+
+    const buttonTexts = Array.from(container.querySelectorAll("button"))
+      .map((button) => button.textContent?.trim());
+    expect(buttonTexts).not.toContain("Hide this task");
+    const unhideButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Unhide this task");
+    expect(unhideButton).toBeTruthy();
+
+    await act(async () => {
+      unhideButton!.click();
+    });
+    await flushReact();
+
+    expect(mockIssuesApi.update).toHaveBeenCalledWith(
+      hiddenIssue.identifier,
+      expect.objectContaining({ hiddenAt: null }),
+    );
+  });
+
   it("does not offer Unarchive from inbox for an issue that isn't archived", async () => {
     mockIssuesApi.get.mockResolvedValue(createIssue());
     mockAuthApi.getSession.mockResolvedValue({

@@ -337,6 +337,7 @@ import {
   Check,
   ChevronRight,
   Copy,
+  Eye,
   EyeOff,
   ScanEye,
   Flag,
@@ -7686,19 +7687,35 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                     setMoreOpen(false);
                   }}
                 />
-                <button
-                  className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
-                  onClick={() => {
-                    updateIssue.mutate(
-                      { hiddenAt: new Date().toISOString() },
-                      { onSuccess: () => navigate("/issues/all") },
-                    );
-                    setMoreOpen(false);
-                  }}
-                >
-                  <EyeOff className="h-3 w-3" />
-                  Hide this task
-                </button>
+                {issueHidden ? (
+                  <button
+                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
+                    onClick={() => {
+                      updateIssue.mutate(
+                        { hiddenAt: null },
+                        { onSuccess: () => pushToast({ title: "Task unhidden", tone: "success" }) },
+                      );
+                      setMoreOpen(false);
+                    }}
+                  >
+                    <Eye className="h-3 w-3" />
+                    Unhide this task
+                  </button>
+                ) : (
+                  <button
+                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
+                    onClick={() => {
+                      updateIssue.mutate(
+                        { hiddenAt: new Date().toISOString() },
+                        { onSuccess: () => navigate("/issues/all") },
+                      );
+                      setMoreOpen(false);
+                    }}
+                  >
+                    <EyeOff className="h-3 w-3" />
+                    Hide this task
+                  </button>
+                )}
               </PopoverContent>
             </Popover>
                 )}

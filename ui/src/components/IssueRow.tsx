@@ -2,7 +2,7 @@ import { requiresExecutionReconciliation } from "@paperclipai/shared";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import type { ExternalObjectSummary, Issue, IssueRecoveryAction } from "@paperclipai/shared";
 import { Link } from "@/lib/router";
-import { Archive, ArchiveRestore, Flag } from "lucide-react";
+import { Archive, ArchiveRestore, Eye, Flag } from "lucide-react";
 import {
   createIssueDetailPath,
   rememberIssueDetailLocationState,
@@ -77,7 +77,7 @@ export interface IssueRowProps {
   onMarkRead?: () => void;
   onArchive?: () => void;
   archiveDisabled?: boolean;
-  /** "unarchive" turns the row's archive button into an Unarchive button (archived inbox rows). */
+  /** Relabels the row's archive button: Unarchive for archived inbox rows, Unhide for hidden tasks. */
   archiveAction?: InboxArchiveAction;
   className?: string;
   /** Pointer entered the row (used by list keyboard nav to track hover). */
@@ -93,7 +93,18 @@ export interface IssueRowProps {
   showDivider?: boolean;
 }
 
-export type InboxArchiveAction = "archive" | "unarchive";
+export type InboxArchiveAction = "archive" | "unarchive" | "unhide";
+
+const INBOX_ARCHIVE_ACTION_LABELS: Record<InboxArchiveAction, string> = {
+  archive: "Archive",
+  unarchive: "Unarchive",
+  unhide: "Unhide",
+};
+const INBOX_ARCHIVE_ACTION_ICONS = {
+  archive: Archive,
+  unarchive: ArchiveRestore,
+  unhide: Eye,
+} as const;
 
 export function InboxArchiveButton({
   onArchive,
@@ -106,8 +117,8 @@ export function InboxArchiveButton({
   compact?: boolean;
   action?: InboxArchiveAction;
 }) {
-  const label = action === "unarchive" ? "Unarchive" : "Archive";
-  const Icon = action === "unarchive" ? ArchiveRestore : Archive;
+  const label = INBOX_ARCHIVE_ACTION_LABELS[action];
+  const Icon = INBOX_ARCHIVE_ACTION_ICONS[action];
   return (
     <button
       type="button"

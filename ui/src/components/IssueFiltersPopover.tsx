@@ -117,6 +117,7 @@ export function IssueFiltersPopover({
   presentation = "legacy",
   inboxScopeFilters,
   hideArchivedFilter,
+  hideHiddenFilter,
 }: {
   state: IssueFilterState;
   onChange: (patch: Partial<IssueFilterState>) => void;
@@ -134,6 +135,8 @@ export function IssueFiltersPopover({
   inboxScopeFilters?: InboxScopeFilters;
   /** Inbox-only "Hide archived" toggle; omitted everywhere archiving doesn't apply. */
   hideArchivedFilter?: { checked: boolean; onChange: (checked: boolean) => void };
+  /** Inbox-only "Hide hidden tasks" toggle for tasks hidden with "Hide this task". */
+  hideHiddenFilter?: { checked: boolean; onChange: (checked: boolean) => void };
 }) {
   const streamlined = presentation === "streamlined";
   const refreshed = presentation === "refreshed";
@@ -185,6 +188,9 @@ export function IssueFiltersPopover({
   const clearFilters = () => {
     onChange(defaultIssueFilterState);
     inboxScopeFilters?.onClear();
+    // "Hide archived" and "Hide hidden tasks" default to checked, so clearing restores them.
+    if (hideArchivedFilter && !hideArchivedFilter.checked) hideArchivedFilter.onChange(true);
+    if (hideHiddenFilter && !hideHiddenFilter.checked) hideHiddenFilter.onChange(true);
   };
 
   const popover = (
@@ -543,6 +549,15 @@ export function IssueFiltersPopover({
                       onCheckedChange={(checked) => hideArchivedFilter.onChange(checked === true)}
                     />
                     <span className="text-sm">Hide archived</span>
+                  </label>
+                ) : null}
+                {hideHiddenFilter ? (
+                  <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
+                    <Checkbox
+                      checked={hideHiddenFilter.checked}
+                      onCheckedChange={(checked) => hideHiddenFilter.onChange(checked === true)}
+                    />
+                    <span className="text-sm">Hide hidden tasks</span>
                   </label>
                 ) : null}
               </div>

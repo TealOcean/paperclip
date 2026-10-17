@@ -1880,6 +1880,8 @@ export interface IssueFilters {
   touchedByUserId?: string;
   inboxArchivedByUserId?: string;
   unreadForUserId?: string;
+  /** List only issues hidden with "Hide this task" (hiddenAt set) instead of visible ones. */
+  hiddenOnly?: boolean;
   projectId?: string;
   workspaceId?: string;
   executionWorkspaceId?: string;
@@ -8058,7 +8060,9 @@ export function issueService(db: Db) {
 
       const conditions = [
         eq(issues.companyId, companyId),
-        visibleIssueCondition(),
+        filters?.hiddenOnly
+          ? and(isNotNull(issues.hiddenAt), isNull(issues.harnessKind))!
+          : visibleIssueCondition(),
       ];
       if (!filters?.q?.trim()) {
         conditions.push(isNull(issues.conversationAgentId));
@@ -8592,14 +8596,17 @@ export function issueService(db: Db) {
       // (inboxVisibleForUserCondition), so the issue page agrees with the inbox
       // lists. The timestamp rule in activeInboxArchiveFields drops the archive
       // on any later activity, even activity that doesn't resurface the issue.
-      const [[archive], [visibility]] = await Promise.all([
+      // The condition goes in WHERE, as in the list query: in a single-table select
+      // list drizzle renders columns unqualified, and the correlated issues.id
+      // inside the condition's subqueries would then bind to the wrong table.
+      const [[archive], [stillVisible]] = await Promise.all([
         inboxArchiveRowsForIssues(db, issue.companyId, userId, [issue.id]),
         db
-          .select({ visible: inboxVisibleForUserCondition(issue.companyId, userId) })
+          .select({ id: issues.id })
           .from(issues)
-          .where(eq(issues.id, issue.id)),
+          .where(and(eq(issues.id, issue.id), inboxVisibleForUserCondition(issue.companyId, userId))),
       ]);
-      if (!archive || !visibility || visibility.visible) return {};
+      if (!archive || stillVisible) return {};
       return {
         archivedAt: archive.archivedAt,
         archivedByActorType: archive.archivedByActorType,
