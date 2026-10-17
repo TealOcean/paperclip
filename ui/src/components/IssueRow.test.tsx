@@ -272,6 +272,24 @@ describe("IssueRow", () => {
     act(() => root.unmount());
   });
 
+  it("renders an Unarchive action for archived inbox rows", () => {
+    const root = createRoot(container);
+    const onArchive = vi.fn();
+
+    act(() => {
+      root.render(<IssueRow issue={createIssue()} onArchive={onArchive} archiveAction="unarchive" />);
+    });
+
+    expect(container.querySelector('button[aria-label="Archive"]')).toBeNull();
+    const unarchiveButton = container.querySelector<HTMLButtonElement>('button[aria-label="Unarchive"]');
+    expect(unarchiveButton?.textContent).toContain("Unarchive");
+
+    act(() => unarchiveButton?.click());
+    expect(onArchive).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+  });
+
   it("emphasizes unread canonical titles and overlays the accessible mark-read control", () => {
     const root = createRoot(container);
     const onMarkRead = vi.fn();

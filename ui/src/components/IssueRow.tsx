@@ -2,7 +2,7 @@ import { requiresExecutionReconciliation } from "@paperclipai/shared";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import type { ExternalObjectSummary, Issue, IssueRecoveryAction } from "@paperclipai/shared";
 import { Link } from "@/lib/router";
-import { Archive, Flag } from "lucide-react";
+import { Archive, ArchiveRestore, Flag } from "lucide-react";
 import {
   createIssueDetailPath,
   rememberIssueDetailLocationState,
@@ -77,6 +77,8 @@ export interface IssueRowProps {
   onMarkRead?: () => void;
   onArchive?: () => void;
   archiveDisabled?: boolean;
+  /** "unarchive" turns the row's archive button into an Unarchive button (archived inbox rows). */
+  archiveAction?: InboxArchiveAction;
   className?: string;
   /** Pointer entered the row (used by list keyboard nav to track hover). */
   onMouseEnter?: () => void;
@@ -91,15 +93,21 @@ export interface IssueRowProps {
   showDivider?: boolean;
 }
 
+export type InboxArchiveAction = "archive" | "unarchive";
+
 export function InboxArchiveButton({
   onArchive,
   disabled,
   compact = false,
+  action = "archive",
 }: {
   onArchive: () => void;
   disabled?: boolean;
   compact?: boolean;
+  action?: InboxArchiveAction;
 }) {
+  const label = action === "unarchive" ? "Unarchive" : "Archive";
+  const Icon = action === "unarchive" ? ArchiveRestore : Archive;
   return (
     <button
       type="button"
@@ -120,10 +128,10 @@ export function InboxArchiveButton({
         "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 disabled:pointer-events-none disabled:opacity-30",
         compact ? "h-5 py-0" : "py-1",
       )}
-      aria-label="Archive"
+      aria-label={label}
     >
-      <Archive className="h-3.5 w-3.5" />
-      Archive
+      <Icon className="h-3.5 w-3.5" />
+      {label}
     </button>
   );
 }
@@ -159,6 +167,7 @@ export function IssueRow({
   onMarkRead,
   onArchive,
   archiveDisabled,
+  archiveAction = "archive",
   className,
   onMouseEnter,
   treeGuides = 0,
@@ -400,7 +409,7 @@ export function IssueRow({
               <>
                 <TaskRowColumnCells identifier={identifier} values={columnValues} />
                 {actions ? <span data-slot="task-row-actions" className="flex shrink-0 items-center gap-1">{actions}</span> : null}
-                {onArchive ? <InboxArchiveButton onArchive={onArchive} disabled={archiveDisabled} compact /> : null}
+                {onArchive ? <InboxArchiveButton onArchive={onArchive} disabled={archiveDisabled} action={archiveAction} compact /> : null}
               </>
             ) : (
               <>
@@ -410,7 +419,7 @@ export function IssueRow({
                 {metadata ? <span data-slot="task-row-metadata" data-marquee-cell={refreshed ? "metadata" : undefined} className="min-w-0">{refreshed ? <CellMarquee cell="metadata">{metadata}</CellMarquee> : metadata}</span> : null}
                 {desktopTrailing}
                 {actions ? <span data-slot="task-row-actions" className="flex shrink-0 items-center gap-1">{actions}</span> : null}
-                {onArchive ? <InboxArchiveButton onArchive={onArchive} disabled={archiveDisabled} compact /> : null}
+                {onArchive ? <InboxArchiveButton onArchive={onArchive} disabled={archiveDisabled} action={archiveAction} compact /> : null}
                 {showIdentifier ? (
                   <span data-slot="task-row-identifier" data-marquee-cell={refreshed ? "identifier" : undefined} className="w-20 shrink-0 text-right font-mono text-xs text-muted-foreground">
                     {refreshed ? <CellMarquee cell="identifier">{identifier}</CellMarquee> : identifier}
@@ -562,7 +571,7 @@ export function IssueRow({
       {(onArchive || desktopTrailing || trailingMeta || externalObjectSummary) ? (
         <span className="ml-auto hidden shrink-0 items-center gap-2 sm:order-3 sm:flex sm:gap-3">
           {onArchive ? (
-            <InboxArchiveButton onArchive={onArchive} disabled={archiveDisabled} />
+            <InboxArchiveButton onArchive={onArchive} disabled={archiveDisabled} action={archiveAction} />
           ) : null}
           {externalObjectSummary ? (
             <ExternalObjectStatusSummary summary={externalObjectSummary} compact />

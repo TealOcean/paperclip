@@ -116,6 +116,7 @@ export function IssueFiltersPopover({
   creators,
   presentation = "legacy",
   inboxScopeFilters,
+  hideArchivedFilter,
 }: {
   state: IssueFilterState;
   onChange: (patch: Partial<IssueFilterState>) => void;
@@ -131,6 +132,8 @@ export function IssueFiltersPopover({
   creators?: CreatorOption[];
   presentation?: "legacy" | "streamlined" | "refreshed";
   inboxScopeFilters?: InboxScopeFilters;
+  /** Inbox-only "Hide archived" toggle; omitted everywhere archiving doesn't apply. */
+  hideArchivedFilter?: { checked: boolean; onChange: (checked: boolean) => void };
 }) {
   const streamlined = presentation === "streamlined";
   const refreshed = presentation === "refreshed";
@@ -531,6 +534,15 @@ export function IssueFiltersPopover({
                       onCheckedChange={(checked) => onChange({ showAgentCreatedTasks: checked === true })}
                     />
                     <span className="text-sm">show agent-created tasks</span>
+                  </label>
+                ) : null}
+                {hideArchivedFilter ? (
+                  <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
+                    <Checkbox
+                      checked={hideArchivedFilter.checked}
+                      onCheckedChange={(checked) => hideArchivedFilter.onChange(checked === true)}
+                    />
+                    <span className="text-sm">Hide archived</span>
                   </label>
                 ) : null}
               </div>

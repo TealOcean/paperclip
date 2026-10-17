@@ -462,6 +462,7 @@ export function getArchivedInboxSearchIssues({
   executionWorkspaceById,
   projectWorkspaceById,
   defaultProjectWorkspaceIdByProjectId,
+  includeWithoutQuery = false,
 }: {
   visibleIssues: Issue[];
   searchableIssues: Issue[];
@@ -470,15 +471,18 @@ export function getArchivedInboxSearchIssues({
   executionWorkspaceById?: ReadonlyMap<string, InboxExecutionWorkspaceLookup>;
   projectWorkspaceById?: ReadonlyMap<string, InboxProjectWorkspaceLookup>;
   defaultProjectWorkspaceIdByProjectId?: ReadonlyMap<string, string>;
+  /** List every archived issue when the query is empty (the inbox "Hide archived" filter is off). */
+  includeWithoutQuery?: boolean;
 }): Issue[] {
   const normalizedQuery = query.trim();
-  if (!normalizedQuery) return [];
+  if (!normalizedQuery && !includeWithoutQuery) return [];
 
   const visibleIssueIds = new Set(visibleIssues.map((issue) => issue.id));
   return searchableIssues
     .filter((issue) => !visibleIssueIds.has(issue.id))
     .filter((issue) =>
-      matchesInboxIssueSearch(issue, normalizedQuery, {
+      !normalizedQuery
+      || matchesInboxIssueSearch(issue, normalizedQuery, {
         isolatedWorkspacesEnabled,
         executionWorkspaceById,
         projectWorkspaceById,

@@ -922,6 +922,51 @@ describe("inbox helpers", () => {
     ).toEqual(["newer", "older"]);
   });
 
+  it("returns no archived issues for an empty query by default", () => {
+    const archived = makeIssue("archived", false);
+
+    expect(
+      getArchivedInboxSearchIssues({
+        visibleIssues: [],
+        searchableIssues: [archived],
+        query: "  ",
+      }),
+    ).toEqual([]);
+  });
+
+  it("lists every archived issue for an empty query when includeWithoutQuery is set", () => {
+    const visibleIssue = makeIssue("visible", false);
+    const older = makeIssue("archived-older", false);
+    older.lastActivityAt = new Date("2026-03-11T02:00:00.000Z");
+    const newer = makeIssue("archived-newer", false);
+    newer.lastActivityAt = new Date("2026-03-11T03:00:00.000Z");
+
+    expect(
+      getArchivedInboxSearchIssues({
+        visibleIssues: [visibleIssue],
+        searchableIssues: [visibleIssue, older, newer],
+        query: "",
+        includeWithoutQuery: true,
+      }).map((issue) => issue.id),
+    ).toEqual(["archived-newer", "archived-older"]);
+  });
+
+  it("still filters archived issues by the query when includeWithoutQuery is set", () => {
+    const match = makeIssue("archived-match", false);
+    match.title = "Alpha archived task";
+    const miss = makeIssue("archived-miss", false);
+    miss.title = "Different task";
+
+    expect(
+      getArchivedInboxSearchIssues({
+        visibleIssues: [],
+        searchableIssues: [match, miss],
+        query: "alpha",
+        includeWithoutQuery: true,
+      }).map((issue) => issue.id),
+    ).toEqual(["archived-match"]);
+  });
+
   it("adds remote issue results that are not already present in inbox search results", () => {
     const remoteMatch = makeIssue("remote-match", false);
     remoteMatch.status = "in_progress";

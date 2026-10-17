@@ -197,6 +197,8 @@ const INBOX_COLLECTION_KEY = "inbox";
 
 type StreamlinedInboxViewState = InboxFilterPreferences & {
   showDateGroupSeparators: boolean;
+  /** Mine tab: keep issues archived from my inbox out of the list (on by default). */
+  hideArchived: boolean;
 };
 
 const DEFAULT_INBOX_FILTER_PREFERENCES: StreamlinedInboxViewState = {
@@ -204,6 +206,7 @@ const DEFAULT_INBOX_FILTER_PREFERENCES: StreamlinedInboxViewState = {
   allApprovalFilter: "all",
   issueFilters: { ...defaultIssueFilterState },
   showDateGroupSeparators: true,
+  hideArchived: true,
 };
 
 function normalizeInboxCollectionViewState(value: unknown): StreamlinedInboxViewState {
@@ -230,6 +233,7 @@ function normalizeInboxCollectionViewState(value: unknown): StreamlinedInboxView
       workspaces: [],
     },
     showDateGroupSeparators: candidate.showDateGroupSeparators !== false,
+    hideArchived: candidate.hideArchived !== false,
   };
 }
 
@@ -866,7 +870,7 @@ function StreamlinedInbox({
   const { dismissed: dismissedAlerts, dismiss: dismissAlert } = useDismissedInboxAlerts();
   const { dismissedAtByKey, dismiss: dismissInboxItem } = useInboxDismissals(selectedCompanyId);
   const { readItems, markRead: markItemRead, markUnread: markItemUnread } = useReadInboxItems();
-  const { allCategoryFilter, allApprovalFilter, issueFilters } = filterPreferences;
+  const { allCategoryFilter, allApprovalFilter, issueFilters, hideArchived } = filterPreferences;
 
   const pathSegment = location.pathname.split("/").pop() ?? "mine";
   const pathTab: InboxTab =
@@ -1459,11 +1463,13 @@ function StreamlinedInbox({
           executionWorkspaceById,
           projectWorkspaceById,
           defaultProjectWorkspaceIdByProjectId,
+          includeWithoutQuery: !hideArchived,
         })
         : [],
     [
       defaultProjectWorkspaceIdByProjectId,
       executionWorkspaceById,
+      hideArchived,
       isolatedWorkspacesEnabled,
       normalizedSearchQuery,
       projectWorkspaceById,
@@ -2444,7 +2450,10 @@ function StreamlinedInbox({
     ? Number(allCategoryFilter !== "everything")
       + Number(showApprovalsCategory && allApprovalFilter !== "all")
     : 0;
-  const activeFilterCount = activeIssueFilterCount + activeInboxScopeFilterCount;
+  const showHideArchivedFilter = tab === "mine";
+  const activeFilterCount = activeIssueFilterCount
+    + activeInboxScopeFilterCount
+    + Number(showHideArchivedFilter && !hideArchived);
   const showGeneralIssueToolbarControls = tab !== "blocked";
   const activeStatusFilterApplied =
     issueFilters.statuses.length === 4
@@ -2641,6 +2650,12 @@ function StreamlinedInbox({
                     }));
                   },
                 } : undefined}
+                hideArchivedFilter={showHideArchivedFilter ? {
+                  checked: hideArchived,
+                  onChange: (checked) => {
+                    updateFilterPreferences((previous) => ({ ...previous, hideArchived: checked }));
+                  },
+                } : undefined}
               />
               <Popover>
                 <PopoverTrigger asChild>
@@ -2810,6 +2825,7 @@ function StreamlinedInbox({
                   childCount = 0,
                   collapseParentId = null,
                   allowArchive = canArchiveFromTab,
+                  allowUnarchive = false,
                 }: {
                   issue: Issue;
                   depth: number;
@@ -2819,6 +2835,8 @@ function StreamlinedInbox({
                   childCount?: number;
                   collapseParentId?: string | null;
                   allowArchive?: boolean;
+                  /** Rows in the "Archived" section get an Unarchive button instead of Archive. */
+                  allowUnarchive?: boolean;
                 }) => {
                   const isUnread = issue.isUnreadForMe && !fadingOutIssues.has(issue.id);
                   const isFading = fadingOutIssues.has(issue.id);
@@ -2949,8 +2967,13 @@ function StreamlinedInbox({
                       ) : undefined}
                       unreadState={isUnread ? "visible" : isFading ? "fading" : "hidden"}
                       onMarkRead={() => markReadMutation.mutate(issue.id)}
-                      onArchive={allowArchive ? () => archiveIssueMutation.mutate(issue.id) : undefined}
-                      archiveDisabled={isArchiving}
+                      onArchive={allowArchive
+                        ? () => archiveIssueMutation.mutate(issue.id)
+                        : allowUnarchive
+                          ? () => unarchiveIssueMutation.mutate(issue.id)
+                          : undefined}
+                      archiveAction={!allowArchive && allowUnarchive ? "unarchive" : "archive"}
+                      archiveDisabled={isArchiving || unarchivingIssueIds.has(issue.id)}
                       desktopTrailing={
                         (streamlinedUiEnabled ? visibleTaskDataColumns : visibleTrailingIssueColumns).length > 0 ? (
                           <InboxIssueTrailingColumns
@@ -3233,6 +3256,7 @@ function StreamlinedInbox({
                     const hasChildren = childIssues.length > 0;
                     const isExpanded = hasChildren && !collapsedInboxParents.has(issue.id);
                     const canArchiveIssue = canArchiveFromTab && group.searchSection === "none";
+                    const canUnarchiveIssue = group.searchSection === "archived";
                     const renderChildIssueRows = (
                       children: Issue[],
                       depth: number,
@@ -3256,6 +3280,7 @@ function StreamlinedInbox({
                           childCount: grandchildIssues.length,
                           collapseParentId: child.id,
                           allowArchive: canArchiveIssue,
+                          allowUnarchive: canUnarchiveIssue,
                         });
                         const isChildArchiving = archivingIssueIds.has(child.id);
                         const row = (
@@ -3296,6 +3321,7 @@ function StreamlinedInbox({
                       childCount: childIssues.length,
                       collapseParentId: issue.id,
                       allowArchive: canArchiveIssue,
+                      allowUnarchive: canUnarchiveIssue,
                     });
 
                     elements.push(wrapItem(`issue:${issue.id}`, isSelected, canArchiveIssue ? (

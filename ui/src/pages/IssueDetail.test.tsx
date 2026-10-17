@@ -5554,6 +5554,84 @@ describe("IssueDetail", () => {
     );
   });
 
+  it("offers Unarchive from inbox in the issue actions menu for an archived issue", async () => {
+    mockIssuesApi.get.mockResolvedValue(
+      createIssue({
+        archivedAt: new Date("2026-04-21T00:00:00.000Z"),
+        archivedByActorType: "user",
+      }),
+    );
+    mockIssuesApi.unarchiveFromInbox.mockResolvedValue({ ok: true });
+    mockAuthApi.getSession.mockResolvedValue({
+      session: { userId: "user-1" },
+      user: { id: "user-1" },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <IssueDetail />
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+    await flushReact();
+
+    const moreButton = container.querySelector(
+      'button[aria-label="More task actions"]',
+    ) as HTMLButtonElement | null;
+    expect(moreButton).toBeTruthy();
+    await act(async () => {
+      moreButton!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    await flushReact();
+
+    const unarchiveButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Unarchive from inbox");
+    expect(unarchiveButton).toBeTruthy();
+
+    await act(async () => {
+      unarchiveButton!.click();
+    });
+    await flushReact();
+
+    expect(mockIssuesApi.unarchiveFromInbox).toHaveBeenCalledWith("issue-1");
+  });
+
+  it("does not offer Unarchive from inbox for an issue that isn't archived", async () => {
+    mockIssuesApi.get.mockResolvedValue(createIssue());
+    mockAuthApi.getSession.mockResolvedValue({
+      session: { userId: "user-1" },
+      user: { id: "user-1" },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <IssueDetail />
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+    await flushReact();
+
+    const moreButton = container.querySelector(
+      'button[aria-label="More task actions"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => {
+      moreButton!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    await flushReact();
+
+    const unarchiveButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Unarchive from inbox");
+    expect(unarchiveButton).toBeUndefined();
+  });
+
   it("exposes restore subtree from the issue actions menu", async () => {
     const childIssue = createIssue({
       id: "child-1",

@@ -29,7 +29,9 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/checkbox", () => ({
-  Checkbox: ({ checked }: { checked?: boolean }) => <input type="checkbox" checked={checked} readOnly />,
+  Checkbox: ({ checked, onCheckedChange }: { checked?: boolean; onCheckedChange?: (checked: boolean) => void }) => (
+    <input type="checkbox" checked={checked} readOnly onClick={() => onCheckedChange?.(!checked)} />
+  ),
 }));
 
 vi.mock("./StatusIcon", () => ({
@@ -207,6 +209,45 @@ describe("IssueFiltersPopover", () => {
     act(() => clearButton?.click());
     expect(onChange).toHaveBeenCalledWith(defaultIssueFilterState);
     expect(onClear).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+  });
+
+  it("shows the Hide archived toggle only when the inbox provides it", () => {
+    const root = createRoot(container);
+    const onHideArchivedChange = vi.fn();
+    const hideArchivedLabel = () =>
+      Array.from(container.querySelectorAll("label"))
+        .find((label) => label.textContent?.trim() === "Hide archived");
+
+    act(() => {
+      root.render(
+        <IssueFiltersPopover
+          state={defaultIssueFilterState}
+          onChange={vi.fn()}
+          activeFilterCount={0}
+          enableExternalObjectFilters={false}
+        />,
+      );
+    });
+    expect(hideArchivedLabel()).toBeUndefined();
+
+    act(() => {
+      root.render(
+        <IssueFiltersPopover
+          state={defaultIssueFilterState}
+          onChange={vi.fn()}
+          activeFilterCount={0}
+          enableExternalObjectFilters={false}
+          hideArchivedFilter={{ checked: true, onChange: onHideArchivedChange }}
+        />,
+      );
+    });
+    const checkbox = hideArchivedLabel()?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(checkbox?.checked).toBe(true);
+
+    act(() => checkbox?.click());
+    expect(onHideArchivedChange).toHaveBeenCalledWith(false);
 
     act(() => root.unmount());
   });

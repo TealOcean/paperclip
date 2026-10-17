@@ -332,6 +332,7 @@ import {
   Activity as ActivityIcon,
   AlertTriangle,
   Archive,
+  ArchiveRestore,
   ArrowLeft,
   Check,
   ChevronRight,
@@ -5701,6 +5702,31 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     },
   });
 
+  // Restores an issue archived from my inbox, from the issue's own "..." menu.
+  const unarchiveFromInbox = useMutation({
+    mutationFn: (id: string) => issuesApi.unarchiveFromInbox(id),
+    onSuccess: (_data, id) => {
+      if (selectedCompanyId) clearLocalInboxArchive(selectedCompanyId, id);
+      pushToast({ title: "Task restored to inbox", tone: "success" });
+    },
+    onError: (err) => {
+      pushToast({
+        title: "Unarchive failed",
+        body:
+          err instanceof Error
+            ? err.message
+            : "Unable to restore this task to the inbox",
+        tone: "error",
+      });
+    },
+    onSettled: async () => {
+      invalidateIssueDetail();
+      if (selectedCompanyId) {
+        await invalidateInboxIssueQueries(queryClient, selectedCompanyId);
+      }
+    },
+  });
+
   const conversationAgent = conversation?.agent ?? agents?.find(agent => agent.id === issue?.conversationAgentId);
   useEffect(() => {
     if (conversationAgent) {
@@ -6459,6 +6485,8 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
   const archivePending = archiveFromInbox.isPending;
   const issueHidden = !!issue?.hiddenAt;
   const canArchiveFromInbox = isFromInbox && !!issue?.id && !issueHidden;
+  // The server reports archivedAt only while the issue is still hidden from my inbox.
+  const canUnarchiveFromInbox = !!issue?.id && !!issue?.archivedAt;
 
   useEffect(() => {
     if (!showInboxToolbar) {
@@ -7585,7 +7613,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                       )}
                       Copy as markdown
                     </button>
-                    {canArchiveFromInbox ? (
+                    {canArchiveFromInbox && !canUnarchiveFromInbox ? (
                       <button
                         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50 disabled:opacity-50"
                         disabled={archivePending}
@@ -7602,6 +7630,20 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   </>
                 ) : null}
                 {privacyMenuItems}
+                {canUnarchiveFromInbox ? (
+                  <button
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50 disabled:opacity-50"
+                    disabled={unarchiveFromInbox.isPending}
+                    onClick={() => {
+                      if (!unarchiveFromInbox.isPending && issue?.id)
+                        unarchiveFromInbox.mutate(issue.id);
+                      setMoreOpen(false);
+                    }}
+                  >
+                    <ArchiveRestore className="h-3 w-3" />
+                    Unarchive from inbox
+                  </button>
+                ) : null}
                 <TaskTreeControlMenuItems
                   scope={treeControlScope}
                   canPause={

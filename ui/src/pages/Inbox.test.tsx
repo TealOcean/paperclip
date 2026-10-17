@@ -1223,6 +1223,82 @@ describe("Inbox toolbar", () => {
     }
   });
 
+  describe("Hide archived filter", () => {
+    const visibleIssue = () => createIssue({ id: "issue-visible", identifier: "PAP-2001", title: "Visible inbox row" });
+    const archivedIssue = () => createIssue({ id: "issue-archived", identifier: "PAP-2002", title: "Archived inbox row" });
+
+    // The server leaves inbox-archived issues out of the Mine query (inboxArchivedByUserId=me)
+    // but keeps them in the touched query.
+    function mockMineAndTouchedLists() {
+      apiMocks.issuesList.mockImplementation(
+        (_companyId: string, filters?: { inboxArchivedByUserId?: string }) =>
+          Promise.resolve(
+            filters?.inboxArchivedByUserId === "me"
+              ? [visibleIssue()]
+              : [visibleIssue(), archivedIssue()],
+          ),
+      );
+    }
+
+    async function renderInbox() {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false, staleTime: 0, gcTime: 0 } },
+      });
+      const root = createRoot(container);
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <Inbox />
+          </QueryClientProvider>,
+        );
+      });
+      return root;
+    }
+
+    it("keeps archived issues out of Mine by default", async () => {
+      routerMock.location.pathname = "/inbox/mine";
+      mockMineAndTouchedLists();
+
+      const root = await renderInbox();
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Visible inbox row");
+      });
+      expect(container.textContent).not.toContain("Archived inbox row");
+      expect(container.querySelector('button[aria-label="Unarchive"]')).toBeNull();
+
+      act(() => root.unmount());
+    });
+
+    it("lists archived issues with an Unarchive action when Hide archived is off", async () => {
+      routerMock.location.pathname = "/inbox/mine";
+      localStorage.setItem("paperclip:inbox:filters:company-1", JSON.stringify({
+        allCategoryFilter: "everything",
+        allApprovalFilter: "all",
+        issueFilters: {},
+        hideArchived: false,
+      }));
+      mockMineAndTouchedLists();
+
+      const root = await renderInbox();
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Visible inbox row");
+        expect(container.textContent).toContain("Archived inbox row");
+      });
+
+      const unarchiveButton = container.querySelector<HTMLButtonElement>('button[aria-label="Unarchive"]');
+      expect(unarchiveButton).not.toBeNull();
+
+      await act(async () => {
+        unarchiveButton!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      });
+      await vi.waitFor(() => {
+        expect(apiMocks.unarchiveFromInbox).toHaveBeenCalledWith("issue-archived");
+      });
+
+      act(() => root.unmount());
+    });
+  });
+
   it("keeps other issue archive controls enabled while one archive is pending", async () => {
     routerMock.location.pathname = "/inbox/mine";
     const issueA = createIssue({ id: "issue-a", identifier: "PAP-1001", title: "First inbox row" });

@@ -8588,17 +8588,24 @@ export function issueService(db: Db) {
       issue: Pick<IssueRow, "id" | "companyId" | "updatedAt">,
       userId: string,
     ) => {
-      const [[activity], [archive]] = await Promise.all([
-        lastActivityStatsForIssues(db, issue.companyId, [issue.id]),
+      // Report the archive exactly while the inbox still hides the issue
+      // (inboxVisibleForUserCondition), so the issue page agrees with the inbox
+      // lists. The timestamp rule in activeInboxArchiveFields drops the archive
+      // on any later activity, even activity that doesn't resurface the issue.
+      const [[archive], [visibility]] = await Promise.all([
         inboxArchiveRowsForIssues(db, issue.companyId, userId, [issue.id]),
+        db
+          .select({ visible: inboxVisibleForUserCondition(issue.companyId, userId) })
+          .from(issues)
+          .where(eq(issues.id, issue.id)),
       ]);
-      const lastActivityAt =
-        latestIssueActivityAt(
-          issue.updatedAt,
-          activity?.latestCommentAt ?? null,
-          activity?.latestLogAt ?? null,
-        ) ?? issue.updatedAt;
-      return activeInboxArchiveFields(archive, lastActivityAt);
+      if (!archive || !visibility || visibility.visible) return {};
+      return {
+        archivedAt: archive.archivedAt,
+        archivedByActorType: archive.archivedByActorType,
+        archivedByAgentId: archive.archivedByAgentId,
+        archivedByRunId: archive.archivedByRunId,
+      };
     },
 
     /**
