@@ -1,4 +1,9 @@
 # syntax=docker/dockerfile:1.20
+# HomeBase: an image built from the runner-remote-artifacts target with
+# --platform linux/arm64, whose runnerd and provider pack the production image
+# ships for remote agents on arm64 hosts. "scratch" ships none.
+ARG RUNNER_ARM64_IMAGE=scratch
+
 FROM node:24-trixie-slim AS base
 ARG USER_UID=1000
 ARG USER_GID=1000
@@ -170,6 +175,29 @@ RUN mkdir -p /provider-pack /provider-pack-transport \
   fi \
   && chmod -R a+rX /provider-pack
 
+# HomeBase: the provider pack alone, without the UI and server builds the
+# runner-provider-pack stage inherits from `build`. The pack needs only the
+# runner's TypeScript output and the workspace dependencies.
+FROM deps AS runner-remote-pack
+COPY . .
+ARG PAPERCLIP_BUILD_COMMIT=""
+RUN test -n "${PAPERCLIP_BUILD_COMMIT}" \
+  && pnpm --filter @paperclipai/paperclip-runner run build:typescript \
+  && mkdir -p /provider-pack \
+  && PAPERCLIP_RUNNER_SOURCE_REVISION="${PAPERCLIP_BUILD_COMMIT}" node packages/paperclip-runner/scripts/build-provider-pack.mjs /provider-pack \
+  && chmod -R a+rX /provider-pack
+
+# HomeBase: runnerd and the provider pack for remote targets, built for the
+# builder's platform. Build it with --platform linux/arm64 for arm64 hosts, then
+# pass that image to the production build as RUNNER_ARM64_IMAGE.
+FROM scratch AS runner-remote-artifacts
+COPY --from=runner-build /app/packages/paperclip-runner/runner/target/release/paperclip-runnerd /bin/paperclip-runnerd
+COPY --from=runner-remote-pack /provider-pack /provider-pack
+
+# FROM --platform only re-targets images, not stages, so the arm64 artifacts
+# come in as a separate image.
+FROM --platform=linux/arm64 ${RUNNER_ARM64_IMAGE} AS runner-arm64
+
 FROM base AS production
 ARG USER_UID=1000
 ARG USER_GID=1000
@@ -207,6 +235,12 @@ RUN if [ -f /opt/paperclip-runner/provider-pack/provider-pack.json ]; then \
     gosu 65534:65534 node -e 'const fs = require("node:fs"); const path = require("node:path"); const root = "/opt/paperclip-runner/provider-pack"; const manifest = JSON.parse(fs.readFileSync(path.join(root, "provider-pack.json"), "utf8")); for (const artifact of Object.values(manifest.payload.artifacts)) fs.readFileSync(path.join(root, artifact.path)); fs.accessSync(path.join(root, manifest.payload.artifacts.nodeCommand.path), fs.constants.X_OK);'; \
   fi
 ENV PAPERCLIP_RUNNER_REMOTE_PROVIDER_PACK_PATH=/opt/paperclip-runner/provider-pack
+
+# HomeBase: linux-arm64 bin/paperclip-runnerd and provider-pack/, empty unless
+# RUNNER_ARM64_IMAGE is set. The deployment points
+# PAPERCLIP_RUNNER_REMOTE_BINARY_PATH and PAPERCLIP_RUNNER_REMOTE_PROVIDER_PACK_PATH
+# here when its remote agents run on arm64.
+COPY --from=runner-arm64 / /opt/paperclip-runner/linux-arm64/
 
 # Declare per-build metadata after the stable RUN layers. Docker includes
 # in-scope ARG values in a RUN's environment even when its command does not
