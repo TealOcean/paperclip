@@ -167,7 +167,8 @@ RUN mkdir -p /provider-pack /provider-pack-transport \
       && mv /provider-pack.archives /provider-pack.archive.json /provider-pack-transport/; \
   else \
     echo "Skipping remote provider pack: supply a full PAPERCLIP_BUILD_COMMIT to enable remote OpenCode/ACPX execution"; \
-  fi
+  fi \
+  && chmod -R a+rX /provider-pack
 
 FROM base AS production
 ARG USER_UID=1000
@@ -199,9 +200,10 @@ COPY --from=runner-provider-pack /provider-pack-transport/ /opt/paperclip-runner
 # Managed deployments can remap node's UID at startup. This immutable pack
 # contains public code and integrity metadata, never credentials; it must remain
 # readable afterward.
-# Keep it root-owned and verify access as an unrelated unprivileged UID.
-RUN chmod -R a+rX /opt/paperclip-runner/provider-pack \
-  && if [ -f /opt/paperclip-runner/provider-pack/provider-pack.json ]; then \
+# Keep it root-owned and verify access as an unrelated unprivileged UID. The
+# runner-provider-pack stage sets the modes and COPY keeps them: a chmod here
+# would copy every file into a second ~3 GB layer.
+RUN if [ -f /opt/paperclip-runner/provider-pack/provider-pack.json ]; then \
     gosu 65534:65534 node -e 'const fs = require("node:fs"); const path = require("node:path"); const root = "/opt/paperclip-runner/provider-pack"; const manifest = JSON.parse(fs.readFileSync(path.join(root, "provider-pack.json"), "utf8")); for (const artifact of Object.values(manifest.payload.artifacts)) fs.readFileSync(path.join(root, artifact.path)); fs.accessSync(path.join(root, manifest.payload.artifacts.nodeCommand.path), fs.constants.X_OK);'; \
   fi
 ENV PAPERCLIP_RUNNER_REMOTE_PROVIDER_PACK_PATH=/opt/paperclip-runner/provider-pack
