@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.20
-# HomeBase: an image built from the runner-remote-artifacts target with
-# --platform linux/arm64, whose runnerd and provider pack the production image
-# ships for remote agents on arm64 hosts. "scratch" ships none.
-ARG RUNNER_ARM64_IMAGE=scratch
+# HomeBase: an image built from the runner-sandbox target with --platform
+# linux/arm64. The production image ships its /opt/paperclip-runner (runnerd and
+# the provider pack) for remote agents on arm64 hosts. The default ships none.
+ARG RUNNER_ARM64_IMAGE=runner-arm64-none
 
 FROM node:24-trixie-slim AS base
 ARG USER_UID=1000
@@ -194,6 +194,25 @@ FROM scratch AS runner-remote-artifacts
 COPY --from=runner-build /app/packages/paperclip-runner/runner/target/release/paperclip-runnerd /bin/paperclip-runnerd
 COPY --from=runner-remote-pack /provider-pack /provider-pack
 
+# HomeBase: the image remote agents run in (an SSH container or a sandbox VM):
+# Node, git and common tools, the agent CLIs (Paperclip's Codex runner finds
+# `codex` on PATH), and runnerd plus the provider pack. The pack sits where
+# Paperclip looks for a preinstalled one and matches this commit exactly, so
+# Paperclip links it instead of uploading 1.6 GB per run.
+FROM node:24-trixie-slim AS runner-sandbox
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates curl wget git gh ripgrep jq python3 procps less build-essential \
+  && rm -rf /var/lib/apt/lists/*
+RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/codex@latest opencode-ai \
+  && npm cache clean --force
+COPY --from=runner-remote-artifacts /bin/paperclip-runnerd /opt/paperclip-runner/bin/paperclip-runnerd
+COPY --from=runner-remote-artifacts /provider-pack /opt/paperclip-runner/provider-pack
+
+# The RUNNER_ARM64_IMAGE default: an empty /opt/paperclip-runner.
+FROM scratch AS runner-arm64-none
+WORKDIR /opt/paperclip-runner
+
 # FROM --platform only re-targets images, not stages, so the arm64 artifacts
 # come in as a separate image.
 FROM --platform=linux/arm64 ${RUNNER_ARM64_IMAGE} AS runner-arm64
@@ -240,7 +259,7 @@ ENV PAPERCLIP_RUNNER_REMOTE_PROVIDER_PACK_PATH=/opt/paperclip-runner/provider-pa
 # RUNNER_ARM64_IMAGE is set. The deployment points
 # PAPERCLIP_RUNNER_REMOTE_BINARY_PATH and PAPERCLIP_RUNNER_REMOTE_PROVIDER_PACK_PATH
 # here when its remote agents run on arm64.
-COPY --from=runner-arm64 / /opt/paperclip-runner/linux-arm64/
+COPY --from=runner-arm64 /opt/paperclip-runner/ /opt/paperclip-runner/linux-arm64/
 
 # Declare per-build metadata after the stable RUN layers. Docker includes
 # in-scope ARG values in a RUN's environment even when its command does not
