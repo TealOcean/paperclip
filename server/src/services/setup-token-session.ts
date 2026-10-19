@@ -337,7 +337,12 @@ export async function reapSetupTokenLeases(
   let failed = 0;
   for (const record of records) {
     try {
-      await deps.leases.releaseById(record.leaseId);
+      // A row with no provider lease (a `local`-driver login, or a login that
+      // failed before it acquired one) has no sandbox to release. Releasing the
+      // empty id fails the uuid lookup on every sweep, so only clear the row.
+      if (record.leaseId) {
+        await deps.leases.releaseById(record.leaseId);
+      }
       await deps.store.remove({
         sessionId: record.sessionId,
         companyId: record.companyId,

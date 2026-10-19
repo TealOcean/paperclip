@@ -124,6 +124,26 @@ describe("setup-token reaper", () => {
     expect(store.rows.size).toBe(0);
   });
 
+  it("clears a terminal record that never held a lease without releasing an empty id", async () => {
+    // A `local`-driver login never acquires a lease, so its row has a null
+    // provider lease id, which the store maps to an empty string.
+    const store = createMemoryStore();
+    store.seed({ sessionId: "no-lease-1", leaseId: "", state: "timed_out" });
+    const leases = createFakeLeases({
+      releaseImpl: async () => {
+        throw new Error('invalid input syntax for type uuid: ""');
+      },
+    });
+    const reaper = createSetupTokenReaper({ store, leases, now: () => NOW });
+
+    const result = await reaper.sweep();
+
+    expect(result.released).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(leases.releaseByIdCalls).toHaveLength(0);
+    expect(store.rows.size).toBe(0);
+  });
+
   it("reaps every reapable record in one sweep and stays idempotent on the next", async () => {
     const store = createMemoryStore();
     store.seed({ sessionId: "orphan-a", leaseId: "lease-a", state: "failed" });
